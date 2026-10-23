@@ -1,7 +1,10 @@
-name: Build PHIRMS APK
+name: Build FcAm0 APK
 on:
   push:
+    branches: [ "main" ]
   workflow_dispatch:
+permissions:
+  contents: write
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -9,28 +12,44 @@ jobs:
       - uses: actions/checkout@v4
       - name: Find and unzip project
         run: |
-          ls -la
           ZIP=$(find . -maxdepth 3 -iname '*.zip' | head -n1)
-          echo "Found zip: $ZIP"
-          test -n "$ZIP" || { echo "NO ZIP IN REPO - upload PHIRMS-project.zip"; exit 1; }
           unzip -o -q "$ZIP" -d unpacked
-          SETTINGS=$(find unpacked -name settings.gradle.kts | head -n1)
-          test -n "$SETTINGS" || { echo "settings.gradle.kts not found in zip"; exit 1; }
+          SETTINGS=$(find unpacked -name settings.gradle* | head -n1)
           echo "PROJECT_DIR=$(dirname "$SETTINGS")" >> "$GITHUB_ENV"
+
+      - name: Change App Display Name to FcAm0
+        run: |
+          STRINGS_FILE=$(find unpacked -name strings.xml | grep "src/main/res/values/strings.xml" | head -n1)
+          if [ -n "$STRINGS_FILE" ]; then
+            sed -i 's/<string name="app_name">.*<\/string>/<string name="app_name">FcAm0<\/string>/g' "$STRINGS_FILE"
+          fi
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-      - name: Accept Android licenses and install platform
-        run: |
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null || true
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0"
+      - name: Accept Android licenses
+        run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null || true
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
+
       - name: Build APK
         run: gradle -p "$PROJECT_DIR" --no-daemon assembleDebug
-      - uses: actions/upload-artifact@v4
+
+      - name: Prepare Final APK
+        run: |
+          OLD_PATH=$(find unpacked -name "*-debug.apk" | head -n1)
+          NEW_PATH="${{ env.PROJECT_DIR }}/FcAm0.apk"
+          mv "$OLD_PATH" "$NEW_PATH"
+          echo "FINAL_APK_PATH=$NEW_PATH" >> "$GITHUB_ENV"
+
+      - name: Release FcAm0 APK
+        uses: softprops/action-gh-release@v2
         with:
-          name: PHIRMS-debug-apk
-          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
+          tag_name: v1.0-${{ github.run_number }}
+          name: "FcAm0 Release #${{ github.run_number }}"
+          files: ${{ env.FINAL_APK_PATH }}
+          body: "Automated public build and release of FcAm0 APK."
+          draft: false
+          prerelease: false
