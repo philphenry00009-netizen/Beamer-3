@@ -1,0 +1,36 @@
+name: Build PHIRMS APK
+on:
+  push:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Find and unzip project
+        run: |
+          ls -la
+          ZIP=$(find . -maxdepth 3 -iname '*.zip' | head -n1)
+          echo "Found zip: $ZIP"
+          test -n "$ZIP" || { echo "NO ZIP IN REPO - upload PHIRMS-project.zip"; exit 1; }
+          unzip -o -q "$ZIP" -d unpacked
+          SETTINGS=$(find unpacked -name settings.gradle.kts | head -n1)
+          test -n "$SETTINGS" || { echo "settings.gradle.kts not found in zip"; exit 1; }
+          echo "PROJECT_DIR=$(dirname "$SETTINGS")" >> "$GITHUB_ENV"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Accept Android licenses and install platform
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null || true
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Build APK
+        run: gradle -p "$PROJECT_DIR" --no-daemon assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PHIRMS-debug-apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
